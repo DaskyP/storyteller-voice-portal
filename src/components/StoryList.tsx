@@ -2,14 +2,14 @@ import React from 'react';
 import StoryCard from './StoryCard';
 import { Story, StoryCategory } from '../types/Story';
 
-const stories: Story[] = [
+export const stories: Story[] = [
   {
     id: 1,
     title: "El Principito",
     description: "Un clásico de Antoine de Saint-Exupéry sobre un pequeño príncipe que viaja por diferentes planetas.",
     duration: "45 minutos",
     category: "educational",
-    content: "En un pequeño planeta vivía un principito. Un día, decidió explorar el universo y comenzó a visitar diferentes planetas, cada uno habitado por un personaje peculiar. En el primer planeta encontró a un rey que creía gobernar sobre las estrellas. En el segundo, a un vanidoso que quería ser admirado por todos. En el tercero, a un bebedor que bebía para olvidar que sentía vergüenza de beber..."
+    content: "En un pequeño planeta vivía un principito. Un día, decidió explorar el universo y comenzó a visitar diferentes planetas, cada uno habitado por un personaje peculiar. En el primer planeta encontró a un rey que creía gobernar sobre las estrellas. En el segundo, a un vanidoso que quería ser admirado por todos. En el tercero, a un bebedor que bebía para olvidar que sentía vergüenza de beber,En un pequeño planeta vivía un principito. Un día, decidió explorar el universo y comenzó a visitar diferentes planetas, cada uno habitado por un personaje peculiar. En el primer planeta encontró a un rey que creía gobernar sobre las estrellas. En el segundo, a un vanidoso que quería ser admirado por todos. En el tercero, a un bebedor que bebía para olvidar que sentía vergüenza de beber"
   },
   {
     id: 2,

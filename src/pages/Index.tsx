@@ -1,280 +1,332 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import StoryList from '@/components/StoryList';
 import AudioPlayer from '@/components/AudioPlayer';
 import { Button } from '@/components/ui/button';
 import { StoryCategory, Story } from '../types/Story';
 import { Mic } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { stories } from '@/components/StoryList';
 
-// Definición de historias de ejemplo (esto debería venir de tu base de datos o API)
-const stories: Story[] = [
-  {
-    id: 1,
-    title: "El bosque mágico",
-    description: "Una aventura en un bosque encantado",
-    duration: "5 min",
-    category: "adventure",
-    content: "Había una vez en un bosque mágico..."
-  },
-  {
-    id: 2,
-    title: "La estrella dormilona",
-    description: "Un cuento para ir a dormir",
-    duration: "3 min",
-    category: "sleep",
-    content: "En lo alto del cielo había una estrella..."
-  },
-  // ... Agrega más historias según necesites
-];
+type SpeechRecognitionType = any; // Evita problemas de types
 
-const Index = () => {
-  const [isPlaying, setIsPlaying] = useState(false);
+export default function Index() {
+  const { toast } = useToast();
+
+  // ======= Estados generales =======
+  const [isPlaying, setIsPlaying] = useState(false);        // Indica si está reproduciendo o en pausa
   const [currentStory, setCurrentStory] = useState<Story | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<StoryCategory | undefined>();
-  const [volume, setVolume] = useState(1);
   const [voiceControlActive, setVoiceControlActive] = useState(false);
-  const { toast } = useToast();
-  const [speechUtterance, setSpeechUtterance] = useState<SpeechSynthesisUtterance | null>(null);
+  const [volume, setVolume] = useState(1);
+
+  // ======= Manejo de la narración en chunks =======
+  const [chunks, setChunks] = useState<string[]>([]);       // Trozos de texto
+  const [chunkIndex, setChunkIndex] = useState<number>(0);  // Índice del chunk actual
+  const [storyFinished, setStoryFinished] = useState(false);
+
+  // Para almacenamiento del utterance actual
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  // Reconocimiento de voz
+  const recognitionRef = useRef<SpeechRecognitionType | null>(null);
+
+  // ================
+  // Efectos
+  // ================
+  useEffect(() => {
+    // Si la voz está activa y cambia la sección, listar
+    if (voiceControlActive && selectedCategory) {
+      listCurrentStories();
+    }
+  }, [voiceControlActive, selectedCategory]);
 
   useEffect(() => {
-    const handleKeyPress = (event: KeyboardEvent) => {
-      if (event.ctrlKey) {
-        event.preventDefault();
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
         startVoiceControl();
-      } else if (event.key.toLowerCase() === 'z') {
-        event.preventDefault();
+      } else if (e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        stopRecognition();
         speakCommands();
       }
     };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
   }, []);
 
-  const speakCommands = () => {
-    if (!window.speechSynthesis) {
-      toast({
-        title: "Error",
-        description: "Tu navegador no soporta la síntesis de voz.",
-        variant: "destructive"
-      });
+  // ====================================
+  // 1) Dividir texto en ~40 palabras
+  // ====================================
+  function splitTextByWords(text: string, wordsPerChunk = 40) {
+    const words = text.split(/\s+/);
+    const result: string[] = [];
+    let temp: string[] = [];
+
+    for (const w of words) {
+      if (temp.length >= wordsPerChunk) {
+        result.push(temp.join(' '));
+        temp = [];
+      }
+      temp.push(w);
+    }
+    if (temp.length > 0) {
+      result.push(temp.join(' '));
+    }
+    return result;
+  }
+
+  // ====================================
+  // 2) Reproducir un chunk (event-based)
+  // ====================================
+  function playChunk(index: number) {
+    if (!chunks[index]) {
+      // No hay chunk -> terminamos
+      setStoryFinished(true);
+      setIsPlaying(false);
       return;
     }
+    // Crear un utterance para el chunk actual
+    const utterance = new SpeechSynthesisUtterance(chunks[index]);
+    currentUtteranceRef.current = utterance;
 
-    window.speechSynthesis.cancel();
-
-    const commands = `
-      Comandos disponibles:
-      Z: Escuchar lista de comandos
-      Control: Activar control por voz
-      Comandos de voz:
-      "reproducir" o "play": Reproducir o pausar cuento actual
-      "siguiente" o "next": Siguiente cuento
-      "anterior" o "previous": Cuento anterior
-      "dormir": Ir a sección para dormir
-      "diversión": Ir a sección de diversión
-      "educativo": Ir a sección educativa
-      "aventuras": Ir a sección de aventuras
-      "listar": Escuchar lista de cuentos en la sección actual
-      "reproducir" seguido del título del cuento: Para reproducir un cuento específico
-    `;
-
-    const utterance = new SpeechSynthesisUtterance(commands);
+    utterance.volume = volume;
     utterance.lang = 'es-ES';
     utterance.rate = 0.9;
-    window.speechSynthesis.speak(utterance);
-  };
 
-  const listCurrentStories = () => {
-    const filteredStories = selectedCategory 
-      ? stories.filter(story => story.category === selectedCategory)
-      : stories;
-    
-    if (filteredStories.length === 0) {
-      speakFeedback("No hay cuentos disponibles en esta sección");
-      return;
-    }
-
-    let message = selectedCategory 
-      ? `En la sección ${getCategoryName(selectedCategory)}, los cuentos disponibles son: `
-      : "Los cuentos disponibles son: ";
-    
-    filteredStories.forEach((story, index) => {
-      message += `${story.title}${index < filteredStories.length - 1 ? ', ' : '.'}`;
-    });
-
-    speakFeedback(message);
-  };
-
-  const getCategoryName = (category: StoryCategory): string => {
-    const categoryMap = {
-      sleep: 'dormir',
-      fun: 'diversión',
-      educational: 'educativo',
-      adventure: 'aventuras'
-    };
-    return categoryMap[category];
-  };
-
-  const splitTextIntoChunks = (text: string): string[] => {
-    const maxLength = 150; // Reducido para evitar cortes
-    const chunks: string[] = [];
-    
-    // Dividir por oraciones usando puntuación
-    const sentences = text.split(/([.!?]+)\s+/);
-    let currentChunk = '';
-    
-    for (let i = 0; i < sentences.length; i++) {
-      const sentence = sentences[i].trim();
-      
-      if (!sentence) continue;
-      
-      if ((currentChunk + sentence).length <= maxLength) {
-        currentChunk += (currentChunk ? ' ' : '') + sentence;
+    // Al terminar este chunk, pasamos al siguiente
+    utterance.onend = () => {
+      // Asegurar que no sea que el usuario pausó manualmente
+      // Si se pausó, onend no se dispara hasta que retoma y acaba el chunk
+      let nextIndex = index + 1;
+      setChunkIndex(nextIndex);
+      if (nextIndex < chunks.length) {
+        // Reproducir siguiente
+        playChunk(nextIndex);
       } else {
-        if (currentChunk) chunks.push(currentChunk);
-        currentChunk = sentence;
+        // Terminó el cuento
+        setStoryFinished(true);
+        setIsPlaying(false);
       }
-    }
-    
-    if (currentChunk) chunks.push(currentChunk);
-    return chunks;
-  };
+    };
 
-  const speakTextInChunks = async (text: string, volume: number) => {
-    try {
-      const chunks = splitTextIntoChunks(text);
-      
-      for (let i = 0; i < chunks.length; i++) {
-        await new Promise<void>((resolve, reject) => {
-          const utterance = new SpeechSynthesisUtterance(chunks[i]);
-          utterance.volume = volume;
-          utterance.lang = 'es-ES';
-          utterance.rate = 0.9;
-          
-          utterance.onend = () => resolve();
-          utterance.onerror = () => reject();
-          
-          window.speechSynthesis.speak(utterance);
-        });
-      }
-    } catch (error) {
-      console.error('Error al reproducir el texto:', error);
-      toast({
-        title: "Error",
-        description: "Hubo un error al reproducir el cuento.",
-        variant: "destructive"
-      });
-    } finally {
+    utterance.onerror = (e) => {
+      console.error("Error en utterance:", e);
       setIsPlaying(false);
-    }
-  };
+    };
 
-  const handlePlayStory = async (story: Story) => {
-    if (!window.speechSynthesis) {
-      toast({
-        title: "Error",
-        description: "Tu navegador no soporta la síntesis de voz.",
-        variant: "destructive"
-      });
+    // Reproducir
+    speechSynthesis.speak(utterance);
+  }
+
+  // ====================================
+  // 3) Empezar la narración
+  // ====================================
+  function startReadingStory(fromIndex: number) {
+    setStoryFinished(false);
+    setChunkIndex(fromIndex);
+    playChunk(fromIndex); 
+  }
+
+  // ====================================
+  // 4) Reproducir historia
+  // ====================================
+  function handlePlayStory(story: Story) {
+    if (!speechSynthesis) {
+      showSpeechError();
       return;
     }
+    // Cancelar cualquier narración previa
+    speechSynthesis.cancel();
+
+    // Si es otra historia o ya terminó, reiniciamos chunkIndex
+    let localIndex = 0;
+    // (Opcional: leer localStorage para retomar, si deseas)
 
     setCurrentStory(story);
-    window.speechSynthesis.cancel();
+    setChunks(splitTextByWords(story.content, 40));
+    setStoryFinished(false);
     setIsPlaying(true);
-    
-    await speakTextInChunks(story.content, volume);
-  };
+    // Comenzar en localIndex
+    startReadingStory(localIndex);
+  }
 
-  const handlePlayPause = () => {
-    if (!window.speechSynthesis) return;
-    
-    if (isPlaying) {
-      window.speechSynthesis.pause();
-      speakFeedback("Comando recibido: pausar narración");
-    } else {
-      window.speechSynthesis.resume();
-      speakFeedback("Comando recibido: reanudar narración");
+  // ====================================
+  // 5) Pausar / Reanudar / Reiniciar
+  // ====================================
+  function handlePlayPause() {
+    if (!speechSynthesis) return;
+
+    // Si está reproduciendo => Pausar
+    if (isPlaying && !storyFinished) {
+      speechSynthesis.pause();
+      speakFeedback("Narración en pausa");
+      setIsPlaying(false);
     }
-    setIsPlaying(!isPlaying);
-  };
+    // Si está pausado => Reanudar
+    else if (!isPlaying && !storyFinished) {
+      speechSynthesis.resume();
+      speakFeedback("Reanudando narración");
+      setIsPlaying(true);
+    }
+    // Terminó => Reiniciar
+    else if (storyFinished && currentStory) {
+      speakFeedback("Iniciando de nuevo");
+      speechSynthesis.cancel();
+      setIsPlaying(true);
+      setChunkIndex(0);
+      startReadingStory(0);
+    }
+  }
 
-  const handleNext = () => {
+  // ====================================
+  // 6) Siguiente / Anterior
+  // ====================================
+  function handleNext() {
     if (!currentStory) return;
-    
-    const stories = document.querySelectorAll('[role="article"]');
-    const currentIndex = Array.from(stories).findIndex(
-      story => story.getAttribute('aria-label')?.includes(currentStory.title)
+    const articles = document.querySelectorAll('[role="article"]');
+    const idx = Array.from(articles).findIndex(el =>
+      el.getAttribute('aria-label')?.includes(currentStory.title)
     );
-    
-    if (currentIndex < stories.length - 1) {
-      speakFeedback("Comando recibido: siguiente cuento");
-      const nextStory = stories[currentIndex + 1];
-      nextStory.querySelector('button')?.click();
+    if (idx < articles.length - 1) {
+      speakFeedback("Siguiente cuento");
+      (articles[idx + 1].querySelector('button') as HTMLButtonElement)?.click();
     }
-  };
-
-  const handlePrevious = () => {
+  }
+  function handlePrevious() {
     if (!currentStory) return;
-    
-    const stories = document.querySelectorAll('[role="article"]');
-    const currentIndex = Array.from(stories).findIndex(
-      story => story.getAttribute('aria-label')?.includes(currentStory.title)
+    const articles = document.querySelectorAll('[role="article"]');
+    const idx = Array.from(articles).findIndex(el =>
+      el.getAttribute('aria-label')?.includes(currentStory.title)
     );
-    
-    if (currentIndex > 0) {
-      speakFeedback("Comando recibido: cuento anterior");
-      const previousStory = stories[currentIndex - 1];
-      previousStory.querySelector('button')?.click();
+    if (idx > 0) {
+      speakFeedback("Cuento anterior");
+      (articles[idx - 1].querySelector('button') as HTMLButtonElement)?.click();
     }
-  };
+  }
 
-  const handleVolumeChange = (newVolume: number[]) => {
-    const volumeValue = newVolume[0] / 100;
-    setVolume(volumeValue);
-    if (speechUtterance) {
-      speechUtterance.volume = volumeValue;
+  // ====================================
+  // 7) Volumen
+  // ====================================
+  function handleVolumeChange(newVol: number[]) {
+    setVolume(newVol[0] / 100);
+  }
+
+  // ====================================
+  // 8) Listar historias
+  // ====================================
+  function listCurrentStories() {
+    const filtered = selectedCategory
+      ? stories.filter(s => s.category === selectedCategory)
+      : stories;
+    if (!filtered.length) {
+      speakFeedback("No hay cuentos en esta sección");
+      return;
     }
-  };
+    let msg = selectedCategory
+      ? `Sección ${mapCategory(selectedCategory)}. Cuentos disponibles: `
+      : "Cuentos disponibles: ";
+    filtered.forEach((s, i) => {
+      msg += s.title + (i < filtered.length - 1 ? ', ' : '.');
+    });
+    speakFeedback(msg);
+  }
 
-  const startVoiceControl = async () => {
+  function mapCategory(cat: StoryCategory) {
+    return {
+      sleep: 'dormir',
+      fun: 'diversión',
+      educational: 'educativos',
+      adventure: 'aventuras'
+    }[cat];
+  }
+
+  // =================
+  // speakFeedback
+  // =================
+  function speakFeedback(text: string) {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'es-ES';
+    u.rate = 0.9;
+    speechSynthesis.speak(u);
+  }
+
+  // =================
+  // speakCommands
+  // =================
+  function speakCommands() {
+    speechSynthesis.cancel();
+    const c = `
+      Comandos de voz:
+      - "reproducir" o "play": pausar, reanudar, o reiniciar si terminó
+      - "siguiente": pasar al siguiente cuento
+      - "anterior": cuento anterior
+      - "dormir", "diversión", "educativo", "aventuras": cambiar de sección
+      - "listar": enumerar cuentos de la sección actual
+      - "reproducir" + título: reproducir un cuento específico
+      Presiona Ctrl para reactivar la voz.
+    `;
+    speakFeedback(c);
+  }
+
+  // =================
+  // showSpeechError
+  // =================
+  function showSpeechError() {
+    toast({
+      title: "Error",
+      description: "Tu navegador no soporta la síntesis de voz.",
+      variant: "destructive"
+    });
+  }
+
+  // =================
+  // Reconocimiento de voz
+  // =================
+  function stopRecognition() {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    setVoiceControlActive(false);
+  }
+
+  async function startVoiceControl() {
+    stopRecognition();
     try {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (!SpeechRecognition) {
         toast({
           title: "Error",
-          description: "Tu navegador no soporta el reconocimiento de voz.",
+          description: "No hay soporte de reconocimiento de voz.",
           variant: "destructive"
         });
         return;
       }
-
       const recognition = new SpeechRecognition();
+      recognitionRef.current = recognition;
       recognition.lang = 'es-ES';
       recognition.continuous = true;
-      
-      recognition.onresult = (event) => {
-        const command = event.results[event.results.length - 1][0].transcript.toLowerCase();
-        
+
+      recognition.onresult = (evt: SpeechRecognitionEvent) => {
+        const command = evt.results[evt.results.length - 1][0].transcript.toLowerCase();
+
         if (command.includes('reproducir') || command.includes('play')) {
-          if (command === 'reproducir' || command === 'play') {
+          const single = (command.trim() === 'reproducir' || command.trim() === 'play');
+          if (single) {
             handlePlayPause();
           } else {
-            const storyTitle = command.replace('reproducir', '').trim();
-            const filteredStories = selectedCategory 
-              ? stories.filter(story => story.category === selectedCategory)
+            // reproducir X
+            const stTitle = command.replace('reproducir','').replace('play','').trim();
+            const filtered = selectedCategory
+              ? stories.filter(s => s.category === selectedCategory)
               : stories;
-            
-            const foundStory = filteredStories.find(story => 
-              story.title.toLowerCase().includes(storyTitle)
-            );
-            
-            if (foundStory) {
-              speakFeedback(`Reproduciendo ${foundStory.title}`);
-              handlePlayStory(foundStory);
+            const found = filtered.find(s => s.title.toLowerCase().includes(stTitle));
+            if (found) {
+              speakFeedback(`Reproduciendo ${found.title}`);
+              handlePlayStory(found);
             } else {
-              speakFeedback("No se encontró el cuento especificado");
+              speakFeedback("No se encontró el cuento.");
             }
           }
         } else if (command.includes('siguiente') || command.includes('next')) {
@@ -283,16 +335,16 @@ const Index = () => {
           handlePrevious();
         } else if (command.includes('dormir')) {
           setSelectedCategory('sleep');
-          speakFeedback("Cambiando a sección dormir");
+          speakFeedback("Sección dormir");
         } else if (command.includes('diversión')) {
           setSelectedCategory('fun');
-          speakFeedback("Cambiando a sección diversión");
+          speakFeedback("Sección diversión");
         } else if (command.includes('educativo')) {
           setSelectedCategory('educational');
-          speakFeedback("Cambiando a sección educativa");
+          speakFeedback("Sección educativo");
         } else if (command.includes('aventuras')) {
           setSelectedCategory('adventure');
-          speakFeedback("Cambiando a sección aventuras");
+          speakFeedback("Sección aventuras");
         } else if (command.includes('listar')) {
           listCurrentStories();
         }
@@ -300,23 +352,25 @@ const Index = () => {
 
       recognition.start();
       setVoiceControlActive(true);
-      
+
       toast({
         title: "Control por voz activado",
-        description: "Ahora puede usar los comandos de voz. Presione Z para escuchar los comandos disponibles.",
+        description: "Use comandos de voz. Presione Z para detener la escucha."
       });
-      
-      speakFeedback("Control por voz activado. Presiona Z para escuchar los comandos disponibles.");
-    } catch (error) {
-      console.error("Error al iniciar el control por voz:", error);
+      speakFeedback("Control por voz activado. Presiona Z para detener la escucha y oír los comandos.");
+    } catch (err) {
+      console.error("Error al iniciar voz:", err);
       toast({
         title: "Error",
-        description: "No se pudo activar el control por voz. Por favor, verifique los permisos del micrófono.",
+        description: "No se pudo iniciar el reconocimiento de voz.",
         variant: "destructive"
       });
     }
-  };
+  }
 
+  // ================
+  // Render
+  // ================
   const categories: { id: StoryCategory; name: string }[] = [
     { id: 'sleep', name: 'Para Dormir' },
     { id: 'fun', name: 'Diversión' },
@@ -331,8 +385,12 @@ const Index = () => {
           <h1 className="text-4xl font-bold mb-4" tabIndex={0}>
             Cuentacuentos Accesible
           </h1>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-8" tabIndex={0}>
-            Presiona <strong>Control</strong> para activar el control por voz, o <strong>Z</strong> para escuchar los comandos disponibles.
+          <p 
+            className="text-xl text-gray-600 max-w-2xl mx-auto mb-8" 
+            tabIndex={0}
+          >
+            Presiona <strong>Control</strong> para activar o reactivar la voz.
+            Presiona <strong>Z</strong> para escuchar los comandos y detener la voz temporalmente.
           </p>
           <Button
             onClick={startVoiceControl}
@@ -346,15 +404,15 @@ const Index = () => {
         </header>
 
         <div className="mb-8 flex gap-4 justify-center">
-          {categories.map((category) => (
+          {categories.map((cat) => (
             <Button
-              key={category.id}
-              onClick={() => setSelectedCategory(category.id)}
+              key={cat.id}
+              onClick={() => setSelectedCategory(cat.id)}
               className={`bg-green-600 hover:bg-green-700 text-white ${
-                selectedCategory === category.id ? 'ring-2 ring-green-400' : ''
+                selectedCategory === cat.id ? 'ring-2 ring-green-400' : ''
               }`}
             >
-              {category.name}
+              {cat.name}
             </Button>
           ))}
         </div>
@@ -379,7 +437,4 @@ const Index = () => {
       </main>
     </div>
   );
-};
-
-export default Index;
-
+}
