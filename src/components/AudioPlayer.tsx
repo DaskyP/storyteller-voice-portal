@@ -62,16 +62,6 @@ const AudioPlayer = ({
             >
               <SkipForward className="w-6 h-6" />
             </Button>
-
-            <div className="w-32">
-              <Slider
-                defaultValue={[100]}
-                max={100}
-                step={1}
-                onValueChange={onVolumeChange}
-                aria-label="Control de volumen"
-              />
-            </div>
           </div>
         </div>
       </div>

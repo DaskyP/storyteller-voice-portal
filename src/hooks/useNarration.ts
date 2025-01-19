@@ -2,7 +2,7 @@
 import { useState, useRef } from 'react'
 import { Story } from '../types/Story'
 
-const WORDS_PER_CHUNK = 40
+const WORDS_PER_CHUNK = 20
 
 export function useNarration() {
   const [isPlaying, setIsPlaying] = useState(false)
