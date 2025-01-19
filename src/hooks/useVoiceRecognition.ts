@@ -1,4 +1,3 @@
-// src/hooks/useVoiceRecognition.ts
 import { useState, useRef } from 'react'
 import { StoryCategory } from '../types/Story'
 
@@ -7,10 +6,8 @@ interface UseVoiceRecognitionParams {
   onPlayStory: (storyTitle: string) => void
   onListStories: () => void
   onSetCategory: (cat: StoryCategory) => void
-
   onNext?: () => void
   onPrevious?: () => void
-
   onPause?: () => void
 }
 
@@ -29,12 +26,14 @@ export function useVoiceRecognition({
   function stopRecognition() {
     if (recognitionRef.current) {
       recognitionRef.current.stop()
+      recognitionRef.current = null
     }
     setVoiceControlActive(false)
   }
 
   function startVoiceControl() {
-    stopRecognition()
+    if (voiceControlActive) return // si ya está activo, no reiniciar
+
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     if (!SpeechRecognition) {
       console.warn("No hay soporte de SpeechRecognition")
@@ -47,20 +46,19 @@ export function useVoiceRecognition({
     recognition.continuous = true
 
     recognition.onresult = (evt: SpeechRecognitionEvent) => {
-      const command = evt.results[evt.results.length - 1][0].transcript.toLowerCase()
+      const command = evt.results[evt.results.length - 1][0].transcript.toLowerCase().trim()
 
-      if (command.includes('reproducir') || command.includes('play')) {
-        const singleWord = (command.trim() === 'reproducir' || command.trim() === 'play')
-        if (singleWord) {
-          onPlayPause()
-        } else {
-          // reproducir X
-          const storyPart = command.replace('reproducir','').replace('play','').trim()
-          onPlayStory(storyPart)
-        }
+      // "reproducir" / "play" sin título => toggle
+      if (command === 'reproducir' || command === 'play') {
+        onPlayPause()
+      }
+      // "reproducir X"
+      else if (command.startsWith('reproducir') || command.startsWith('play')) {
+        const storyPart = command.replace('reproducir','').replace('play','').trim()
+        onPlayStory(storyPart)
       }
       else if (command.includes('pausa') || command.includes('pausar')) {
-        if (onPause) onPause()
+        onPause?.()
       }
       else if (command.includes('listar')) {
         onListStories()
@@ -78,10 +76,10 @@ export function useVoiceRecognition({
         onSetCategory('adventure')
       }
       else if (command.includes('siguiente') || command.includes('next')) {
-        if (onNext) onNext()
+        onNext?.()
       }
       else if (command.includes('anterior') || command.includes('previous')) {
-        if (onPrevious) onPrevious()
+        onPrevious?.()
       }
     }
 
@@ -90,8 +88,8 @@ export function useVoiceRecognition({
   }
 
   return {
+    voiceControlActive,
     startVoiceControl,
-    stopRecognition,
-    voiceControlActive
+    stopRecognition
   }
 }

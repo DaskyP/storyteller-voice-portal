@@ -1,143 +1,134 @@
-// src/hooks/useNarration.ts
-import { useState, useRef } from 'react'
-import { Story } from '../types/Story'
+import { useState, useRef } from "react";
+import { Story } from "../types/Story";
 
-const WORDS_PER_CHUNK = 20
+const WORDS_PER_CHUNK = 20;
 
 export function useNarration() {
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [storyFinished, setStoryFinished] = useState(false)
-  const [currentStory, setCurrentStory] = useState<Story | null>(null)
-  const [chunks, setChunks] = useState<string[]>([])
-  const [chunkIndex, setChunkIndex] = useState<number>(0)
-  const [volume, setVolume] = useState(1) // de 0 a 1
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [storyFinished, setStoryFinished] = useState(false);
+  const [currentStory, setCurrentStory] = useState<Story | null>(null);
+  const [chunks, setChunks] = useState<string[]>([]);
+  const [chunkIndex, setChunkIndex] = useState<number>(0);
+  const [volume, setVolume] = useState(1);
 
-  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
-  // Divide el texto en trozos (~40 palabras)
-  function splitTextByWords(text: string, wordsPerChunk: number = WORDS_PER_CHUNK) {
-    const words = text.split(/\s+/)
-    const result: string[] = []
-    let temp: string[] = []
+  // Divide texto en chunks (~20 palabras)
+  function splitTextByWords(text: string, wordsPerChunk = WORDS_PER_CHUNK) {
+    const words = text.split(/\s+/);
+    const result: string[] = [];
+    let temp: string[] = [];
 
-    for (const w of words) {
+    for (const word of words) {
       if (temp.length >= wordsPerChunk) {
-        result.push(temp.join(' '))
-        temp = []
+        result.push(temp.join(" "));
+        temp = [];
       }
-      temp.push(w)
+      temp.push(word);
     }
-    if (temp.length > 0) result.push(temp.join(' '))
-    return result
+    if (temp.length > 0) {
+      result.push(temp.join(" "));
+    }
+    return result;
   }
 
-  // Reproducir un chunk por evento
+  // Reproduce un chunk específico
   function playChunk(index: number) {
     if (!chunks[index]) {
-      // No hay chunk => historia terminada
-      setStoryFinished(true)
-      setIsPlaying(false)
-      return
+      setStoryFinished(true);
+      setIsPlaying(false);
+      return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(chunks[index])
-    currentUtteranceRef.current = utterance
-    utterance.volume = volume
-    utterance.lang = 'es-ES'
-    utterance.rate = 0.9
+    const utterance = new SpeechSynthesisUtterance(chunks[index]);
+    currentUtteranceRef.current = utterance;
+
+    utterance.volume = volume;
+    utterance.lang = "es-ES";
+    utterance.rate = 0.9;
 
     utterance.onend = () => {
-      const nextIndex = index + 1
-      setChunkIndex(nextIndex)
+      const nextIndex = index + 1;
+      setChunkIndex(nextIndex);
+
       if (nextIndex < chunks.length) {
-        playChunk(nextIndex)
+        playChunk(nextIndex);
       } else {
-        // Fin
-        setStoryFinished(true)
-        setIsPlaying(false)
+        setStoryFinished(true);
+        setIsPlaying(false);
       }
-    }
+    };
 
-    utterance.onerror = (e) => {
-      console.error("Error en utterance:", e)
-      setIsPlaying(false)
-    }
+    utterance.onerror = (error) => {
+      console.error("Error en utterance:", error);
+      setIsPlaying(false);
+    };
 
-    speechSynthesis.speak(utterance)
+    speechSynthesis.speak(utterance);
   }
 
   function startReadingStory(fromIndex: number) {
-    setStoryFinished(false)
-    setChunkIndex(fromIndex)
-    playChunk(fromIndex)
+    setStoryFinished(false);
+    setChunkIndex(fromIndex);
+    playChunk(fromIndex);
   }
 
   // =========== API HOOK ===========
 
-  // Reproducir nueva historia
   function handlePlayStory(story: Story) {
     if (!speechSynthesis) {
-      console.warn("No hay soporte de speechSynthesis en este navegador")
-      return
+      console.warn("No hay soporte para speechSynthesis");
+      return;
     }
-    // Cancelar narración previa
-    speechSynthesis.cancel()
 
-    setCurrentStory(story)
-    setStoryFinished(false)
-    setChunkIndex(0)
-    setIsPlaying(true)
+    // Cancelar cualquier narración previa
+    speechSynthesis.cancel();
 
-    const parted = splitTextByWords(story.content)
-    setChunks(parted)
+    setCurrentStory(story);
+    setStoryFinished(false);
+    setChunkIndex(0);
+    setChunks(splitTextByWords(story.content));
+    setIsPlaying(true);
 
-    startReadingStory(0)
+    // Iniciar la narración
+    startReadingStory(0);
   }
 
-  // Toggle pausar / reanudar / reiniciar
   function handlePlayPause() {
-    if (!speechSynthesis) return
+    if (!speechSynthesis) return;
 
     if (isPlaying && !storyFinished) {
-      // Pausar
-      speechSynthesis.pause()
-      setIsPlaying(false)
+      speechSynthesis.pause();
+      setIsPlaying(false);
     } else if (!isPlaying && !storyFinished) {
-      // Reanudar
-      speechSynthesis.resume()
-      setIsPlaying(true)
+      speechSynthesis.resume();
+      setIsPlaying(true);
     } else if (storyFinished && currentStory) {
-      // Reiniciar desde 0
-      speechSynthesis.cancel()
-      setChunkIndex(0)
-      setIsPlaying(true)
-      startReadingStory(0)
+      speechSynthesis.cancel();
+      setChunkIndex(0);
+      setIsPlaying(true);
+      startReadingStory(0);
     }
   }
 
-  // Nueva función "pausa" pura (sin reanudar)
   function handlePause() {
-    if (!speechSynthesis) return
-    // Pausar sólo si está reproduciendo y no terminó
     if (isPlaying && !storyFinished) {
-      speechSynthesis.pause()
-      setIsPlaying(false)
+      speechSynthesis.pause();
+      setIsPlaying(false);
     }
   }
 
-  // Ajustar volumen (0..1)
-  function setNarrationVolume(v: number) {
-    setVolume(v)
+  function cancelNarration() {
+    speechSynthesis.cancel();
+    setIsPlaying(false);
+    setStoryFinished(true);
+    setCurrentStory(null);
+    setChunks([]);
+    setChunkIndex(0);
   }
 
-  // Cancelar todo
-  function cancelNarration() {
-    speechSynthesis.cancel()
-    setIsPlaying(false)
-    setStoryFinished(true)
-    setCurrentStory(null)
-    setChunks([])
-    setChunkIndex(0)
+  function setNarrationVolume(vol: number) {
+    setVolume(vol);
   }
 
   return {
@@ -146,10 +137,10 @@ export function useNarration() {
     currentStory,
     handlePlayStory,
     handlePlayPause,
-    handlePause,   // <-- Exponemos la función pura "pausa"
-    chunkIndex,
+    handlePause,
     cancelNarration,
     setNarrationVolume,
-    volume
-  }
+    chunkIndex,
+    volume,
+  };
 }

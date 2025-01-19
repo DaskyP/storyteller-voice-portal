@@ -1,4 +1,3 @@
-// src/pages/Index.tsx
 import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Mic } from "lucide-react"
@@ -6,7 +5,6 @@ import { StoryCategory } from "../types/Story"
 import StoryList from "@/components/StoryList"
 import AudioPlayer from "@/components/AudioPlayer"
 import { stories } from "@/components/StoryList"
-
 import { useNarration } from "@/hooks/useNarration"
 import { useVoiceRecognition } from "@/hooks/useVoiceRecognition"
 
@@ -20,116 +18,102 @@ import {
 } from "@/components/ui/toast"
 
 export default function Index() {
-  // =========== Narración ============
   const {
     isPlaying,
     storyFinished,
     currentStory,
     handlePlayStory,
     handlePlayPause,
-    handlePause,       
+    handlePause,
     cancelNarration,
     chunkIndex,
     setNarrationVolume,
     volume
   } = useNarration()
 
-  // =========== Estados UI ===========
-  const [selectedCategory, setSelectedCategory] = React.useState<StoryCategory | undefined>(undefined)
-
-  // Toast de comandos
+  const [selectedCategory, setSelectedCategory] = React.useState<StoryCategory | undefined>()
   const [commandToastOpen, setCommandToastOpen] = React.useState(false)
   const [commandMessage, setCommandMessage] = React.useState("")
 
-  function showCommandToast(message: string) {
-    setCommandMessage(message)
+  function showCommandToast(msg: string) {
+    setCommandMessage(msg)
     setCommandToastOpen(true)
   }
 
   function speakFeedback(text: string) {
     speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'es-ES'
-    utterance.rate = 0.9
-    speechSynthesis.speak(utterance)
+    const utt = new SpeechSynthesisUtterance(text)
+    utt.lang = 'es-ES'
+    utt.rate = 0.9
+    speechSynthesis.speak(utt)
   }
 
-  // =========== Voice Recognition ===========
   const {
+    voiceControlActive,
     startVoiceControl,
-    stopRecognition,
-    voiceControlActive
+    stopRecognition
   } = useVoiceRecognition({
-    // Comando genérico "reproducir" / "play"
     onPlayPause: () => {
-      showCommandToast("Comando: reproducir / pausar")
+      showCommandToast("Comando: reproducir/pausar")
       handlePlayPause()
     },
-    // Comando: "reproducir X"
-    onPlayStory: (storyTitle: string) => {
-      showCommandToast(`Comando: reproducir «${storyTitle}»`)
+    onPlayStory: (title) => {
+      showCommandToast(`Comando: reproducir «${title}»`)
       const filtered = selectedCategory
         ? stories.filter(s => s.category === selectedCategory)
         : stories
-      const found = filtered.find(st =>
-        st.title.toLowerCase().includes(storyTitle.toLowerCase())
-      )
+      const found = filtered.find(st => st.title.toLowerCase().includes(title.toLowerCase()))
       if (found) {
-        // Matar narración previa y reset
-        cancelNarration()
-        // Ahora reproducir la historia deseada
-        handlePlayStory(found)
+        cancelNarration()   // matar cualquier narración previa
+        handlePlayStory(found) // arranca en "reproduciendo"
       } else {
-        speakFeedback("No se encontró la historia solicitada.")
+        speakFeedback("No se encontró esa historia.")
       }
     },
-    // Comando: "listar"
     onListStories: () => {
       showCommandToast("Comando: listar")
       listCurrentStories()
     },
-    // Comando: "dormir", "diversión", etc.
-    onSetCategory: (cat: StoryCategory) => {
+    onSetCategory: (cat) => {
       showCommandToast(`Comando: sección => ${cat}`)
       setSelectedCategory(cat)
       speakFeedback(`Cambiando a la sección ${mapCategory(cat)}`)
     },
-    // Comando: "siguiente"
     onNext: () => {
       showCommandToast("Comando: siguiente")
       handleNext()
     },
-    // Comando: "anterior"
     onPrevious: () => {
       showCommandToast("Comando: anterior")
       handlePrevious()
     },
-    // Comando: "pausa" (nuevo)
     onPause: () => {
       showCommandToast("Comando: pausa")
-      handlePause()  // Llamamos la pausa pura
+      handlePause()
     }
   })
 
-  // Efecto para Ctrl / Z
+  // Efecto para Ctrl y Z
   React.useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.ctrlKey) {
         e.preventDefault()
-        startVoiceControl()
-        showCommandToast("Tecla Ctrl → Activar voz")
-      } else if (e.key.toLowerCase() === 'z') {
+        if (!voiceControlActive) {
+          startVoiceControl()
+          showCommandToast("Ctrl → Activar voz")
+        }
+      }
+      else if (e.key.toLowerCase() === 'z') {
         e.preventDefault()
         stopRecognition()
         speakCommands()
-        showCommandToast("Tecla Z → Mostrar comandos")
+        showCommandToast("Z → Mostrar comandos")
       }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [startVoiceControl, stopRecognition])
+  }, [voiceControlActive, startVoiceControl, stopRecognition])
 
-  // Helpers
   function handleNext() {
     if (!currentStory) return
     speakFeedback("Siguiente cuento")
@@ -184,14 +168,14 @@ export default function Index() {
     speechSynthesis.cancel()
     speakFeedback(`
       Comandos de voz:
-      - "reproducir" o "play": pausar, reanudar, o reiniciar si terminó
-      - "reproducir nombre-del-cuento"
-      - "pausa": para pausar sin reanudar
-      - "siguiente": pasar al siguiente cuento
-      - "anterior": cuento anterior
-      - "dormir", "diversión", "educativo", "aventuras": cambiar de sección
-      - "listar": enumerar cuentos de la sección actual
-      Presiona Ctrl para reactivar la voz.
+      - "reproducir" => pausar/reanudar
+      - "reproducir nombre" => reproducir historia
+      - "pausa" => pausar sin reanudar
+      - "siguiente" => siguiente cuento
+      - "anterior" => cuento anterior
+      - "dormir", "diversión", "educativo", "aventuras" => sección
+      - "listar" => cuentos disponibles
+      Ctrl => activar voz, Z => detener voz y comandos
     `)
   }
 
@@ -214,11 +198,16 @@ export default function Index() {
               className="text-xl text-gray-600 max-w-2xl mx-auto mb-8"
               tabIndex={0}
             >
-              Presiona <strong>Control</strong> para activar o reactivar la voz.
-              Presiona <strong>Z</strong> para detener la escucha y escuchar los comandos.
+              Presiona <strong>Control</strong> para activar o reactivar voz.
+              Presiona <strong>Z</strong> para detener la voz y oír los comandos.
             </p>
             <Button
-              onClick={startVoiceControl}
+              onClick={() => {
+                if (!voiceControlActive) {
+                  startVoiceControl()
+                  showCommandToast("Activar voz manualmente")
+                }
+              }}
               className={`bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg flex items-center gap-2 mx-auto ${
                 voiceControlActive ? 'ring-2 ring-green-400' : ''
               }`}
@@ -233,7 +222,6 @@ export default function Index() {
               <Button
                 key={cat.id}
                 onClick={() => {
-                  // Cancelar narración si estaba reproduciendo
                   cancelNarration()
                   setSelectedCategory(cat.id)
                 }}
@@ -246,14 +234,10 @@ export default function Index() {
             ))}
           </div>
 
-          <section 
-            aria-label="Lista de cuentos disponibles" 
-            className="mb-24"
-          >
+          <section aria-label="Lista de cuentos disponibles" className="mb-24">
             <StoryList
               selectedCategory={selectedCategory}
               onPlayStory={(story) => {
-                // Si reproducimos manualmente, matamos la anterior
                 cancelNarration()
                 handlePlayStory(story)
               }}
@@ -272,7 +256,6 @@ export default function Index() {
           )}
         </main>
 
-        {/* Toast que muestra el último comando */}
         <Toast
           open={commandToastOpen}
           onOpenChange={setCommandToastOpen}
@@ -284,7 +267,6 @@ export default function Index() {
           </div>
           <ToastClose />
         </Toast>
-
         <ToastViewport />
       </div>
     </ToastProvider>
