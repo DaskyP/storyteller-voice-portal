@@ -1,6 +1,5 @@
 // src/pages/Index.tsx
 import * as React from "react"
-import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Mic } from "lucide-react"
 import { StoryCategory } from "../types/Story"
@@ -21,8 +20,6 @@ import {
 } from "@/components/ui/toast"
 
 export default function Index() {
-  const { toast } = useToast()
-
   // =========== Narración ============
   const {
     isPlaying,
@@ -30,6 +27,7 @@ export default function Index() {
     currentStory,
     handlePlayStory,
     handlePlayPause,
+    handlePause,       
     cancelNarration,
     chunkIndex,
     setNarrationVolume,
@@ -39,88 +37,140 @@ export default function Index() {
   // =========== Estados UI ===========
   const [selectedCategory, setSelectedCategory] = React.useState<StoryCategory | undefined>(undefined)
 
-  // ====== Estado para el toast de comandos ======
+  // Toast de comandos
   const [commandToastOpen, setCommandToastOpen] = React.useState(false)
   const [commandMessage, setCommandMessage] = React.useState("")
 
-  // ====== Función para mostrar el toast de comando ======
   function showCommandToast(message: string) {
     setCommandMessage(message)
     setCommandToastOpen(true)
   }
 
-  // ====== DEFINIR speakFeedback para evitar el error ======
   function speakFeedback(text: string) {
-    // Cancelar cualquier narración previa
     speechSynthesis.cancel()
-
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.lang = 'es-ES'
     utterance.rate = 0.9
     speechSynthesis.speak(utterance)
   }
 
-  // ====== Reconocimiento de voz ======
+  // =========== Voice Recognition ===========
   const {
     startVoiceControl,
     stopRecognition,
     voiceControlActive
   } = useVoiceRecognition({
+    // Comando genérico "reproducir" / "play"
     onPlayPause: () => {
       showCommandToast("Comando: reproducir / pausar")
       handlePlayPause()
     },
+    // Comando: "reproducir X"
     onPlayStory: (storyTitle: string) => {
       showCommandToast(`Comando: reproducir «${storyTitle}»`)
       const filtered = selectedCategory
         ? stories.filter(s => s.category === selectedCategory)
         : stories
-      const found = filtered.find(st => st.title.toLowerCase().includes(storyTitle.toLowerCase()))
-
+      const found = filtered.find(st =>
+        st.title.toLowerCase().includes(storyTitle.toLowerCase())
+      )
       if (found) {
+        // Matar narración previa y reset
+        cancelNarration()
+        // Ahora reproducir la historia deseada
         handlePlayStory(found)
       } else {
         speakFeedback("No se encontró la historia solicitada.")
       }
     },
+    // Comando: "listar"
     onListStories: () => {
       showCommandToast("Comando: listar")
       listCurrentStories()
     },
+    // Comando: "dormir", "diversión", etc.
     onSetCategory: (cat: StoryCategory) => {
       showCommandToast(`Comando: sección => ${cat}`)
       setSelectedCategory(cat)
       speakFeedback(`Cambiando a la sección ${mapCategory(cat)}`)
     },
+    // Comando: "siguiente"
     onNext: () => {
       showCommandToast("Comando: siguiente")
       handleNext()
     },
+    // Comando: "anterior"
     onPrevious: () => {
       showCommandToast("Comando: anterior")
       handlePrevious()
+    },
+    // Comando: "pausa" (nuevo)
+    onPause: () => {
+      showCommandToast("Comando: pausa")
+      handlePause()  // Llamamos la pausa pura
     }
   })
 
-  // Detectar Ctrl y Z
+  // Efecto para Ctrl / Z
   React.useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.ctrlKey) {
         e.preventDefault()
         startVoiceControl()
-        showCommandToast("Tecla Ctrl presionada → Activar voz")
+        showCommandToast("Tecla Ctrl → Activar voz")
       } else if (e.key.toLowerCase() === 'z') {
         e.preventDefault()
         stopRecognition()
         speakCommands()
-        showCommandToast("Tecla Z presionada → Mostrar comandos")
+        showCommandToast("Tecla Z → Mostrar comandos")
       }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
   }, [startVoiceControl, stopRecognition])
 
-  // Otros helpers
+  // Helpers
+  function handleNext() {
+    if (!currentStory) return
+    speakFeedback("Siguiente cuento")
+    const articles = document.querySelectorAll('[role="article"]')
+    const idx = Array.from(articles).findIndex(el =>
+      el.getAttribute('aria-label')?.includes(currentStory.title)
+    )
+    if (idx < articles.length - 1) {
+      (articles[idx + 1].querySelector('button') as HTMLButtonElement)?.click()
+    }
+  }
+
+  function handlePrevious() {
+    if (!currentStory) return
+    speakFeedback("Cuento anterior")
+    const articles = document.querySelectorAll('[role="article"]')
+    const idx = Array.from(articles).findIndex(el =>
+      el.getAttribute('aria-label')?.includes(currentStory.title)
+    )
+    if (idx > 0) {
+      (articles[idx - 1].querySelector('button') as HTMLButtonElement)?.click()
+    }
+  }
+
+  function listCurrentStories() {
+    const filtered = selectedCategory
+      ? stories.filter(s => s.category === selectedCategory)
+      : stories
+    if (!filtered.length) {
+      speakFeedback("No hay cuentos en esta sección")
+      return
+    }
+    let msg = selectedCategory 
+      ? `Sección ${mapCategory(selectedCategory)}. Cuentos disponibles: `
+      : "Cuentos disponibles: "
+    filtered.forEach((s, i) => {
+      msg += s.title + (i < filtered.length - 1 ? ', ' : '.')
+    })
+    speakFeedback(msg)
+  }
+
   function mapCategory(cat: StoryCategory) {
     return {
       sleep: 'dormir',
@@ -134,55 +184,15 @@ export default function Index() {
     speechSynthesis.cancel()
     speakFeedback(`
       Comandos de voz:
-      "reproducir" o "play" => pausar, reanudar, o reiniciar si terminó
-      "siguiente" => pasar al siguiente cuento
-      "anterior" => cuento anterior
-      "dormir", "diversión", "educativo", "aventuras" => cambiar de sección
-      "listar" => enumerar cuentos de la sección actual
+      - "reproducir" o "play": pausar, reanudar, o reiniciar si terminó
+      - "reproducir nombre-del-cuento"
+      - "pausa": para pausar sin reanudar
+      - "siguiente": pasar al siguiente cuento
+      - "anterior": cuento anterior
+      - "dormir", "diversión", "educativo", "aventuras": cambiar de sección
+      - "listar": enumerar cuentos de la sección actual
       Presiona Ctrl para reactivar la voz.
     `)
-  }
-
-  function handleNext() {
-    if (!currentStory) return
-    const articles = document.querySelectorAll('[role="article"]')
-    const idx = Array.from(articles).findIndex(el =>
-      el.getAttribute('aria-label')?.includes(currentStory.title)
-    )
-    if (idx < articles.length - 1) {
-      speakFeedback("Siguiente cuento")
-      ;(articles[idx + 1].querySelector('button') as HTMLButtonElement)?.click()
-    }
-  }
-
-  function handlePrevious() {
-    if (!currentStory) return
-    const articles = document.querySelectorAll('[role="article"]')
-    const idx = Array.from(articles).findIndex(el =>
-      el.getAttribute('aria-label')?.includes(currentStory.title)
-    )
-    if (idx > 0) {
-      speakFeedback("Cuento anterior")
-      ;(articles[idx - 1].querySelector('button') as HTMLButtonElement)?.click()
-    }
-  }
-
-  function listCurrentStories() {
-    const filtered = selectedCategory
-      ? stories.filter(s => s.category === selectedCategory)
-      : stories
-
-    if (!filtered.length) {
-      speakFeedback("No hay cuentos en esta sección")
-      return
-    }
-    let msg = selectedCategory 
-      ? `Sección ${mapCategory(selectedCategory)}. Cuentos disponibles: `
-      : "Cuentos disponibles: "
-    filtered.forEach((s, i) => {
-      msg += s.title + (i < filtered.length - 1 ? ', ' : '.')
-    })
-    speakFeedback(msg)
   }
 
   const categories: { id: StoryCategory; name: string }[] = [
@@ -223,6 +233,7 @@ export default function Index() {
               <Button
                 key={cat.id}
                 onClick={() => {
+                  // Cancelar narración si estaba reproduciendo
                   cancelNarration()
                   setSelectedCategory(cat.id)
                 }}
@@ -241,7 +252,11 @@ export default function Index() {
           >
             <StoryList
               selectedCategory={selectedCategory}
-              onPlayStory={handlePlayStory}
+              onPlayStory={(story) => {
+                // Si reproducimos manualmente, matamos la anterior
+                cancelNarration()
+                handlePlayStory(story)
+              }}
             />
           </section>
 

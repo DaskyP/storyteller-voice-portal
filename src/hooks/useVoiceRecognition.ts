@@ -10,6 +10,8 @@ interface UseVoiceRecognitionParams {
 
   onNext?: () => void
   onPrevious?: () => void
+
+  onPause?: () => void
 }
 
 export function useVoiceRecognition({
@@ -19,6 +21,7 @@ export function useVoiceRecognition({
   onSetCategory,
   onNext,
   onPrevious,
+  onPause,
 }: UseVoiceRecognitionParams) {
   const [voiceControlActive, setVoiceControlActive] = useState(false)
   const recognitionRef = useRef<any>(null)
@@ -55,7 +58,10 @@ export function useVoiceRecognition({
           const storyPart = command.replace('reproducir','').replace('play','').trim()
           onPlayStory(storyPart)
         }
-      } 
+      }
+      else if (command.includes('pausa') || command.includes('pausar')) {
+        if (onPause) onPause()
+      }
       else if (command.includes('listar')) {
         onListStories()
       }
@@ -71,7 +77,6 @@ export function useVoiceRecognition({
       else if (command.includes('aventuras')) {
         onSetCategory('adventure')
       }
-      // (2) Manejar "siguiente" y "anterior"
       else if (command.includes('siguiente') || command.includes('next')) {
         if (onNext) onNext()
       }
